@@ -34,12 +34,34 @@ async function callClaude(system, user) {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ model:'claude-sonnet-4-6', max_tokens:1000, system, messages:[{role:'user',content:user}] })
     });
+    if (!res.ok) {
+      console.error('Landfall: Claude API responded with', res.status, await res.text().catch(()=> ''));
+      return null;
+    }
     const d = await res.json();
     const text = d.content?.[0]?.text || '';
     const m = text.match(/\{[\s\S]*\}/);
     if (m) return JSON.parse(m[0]);
+    console.error('Landfall: could not find JSON in Claude response', d);
     return null;
-  } catch { return null; }
+  } catch (err) {
+    console.error('Landfall: Claude API call failed', err);
+    return null;
+  }
+}
+
+// Example/mock data — used when "Use example data" is toggled on, so the flow
+// can be demoed or tested without a live, working Anthropic API connection.
+const EXAMPLE_RISK = {riskScore:72,floodRisk:'High',hurricaneExposure:'Critical',terrainRisk:'Medium',hurricaneCat:'Cat 4-5',recommendation:'Raise foundation minimum 1.5m, use reinforced concrete roof deck',concerns:['Coastal plain flood exposure','High-frequency Cat 4+ track','Storm surge corridor'],advantages:['Stable bedrock','Inland setback from coast']};
+const EXAMPLE_COMP = {overallScore:65,windLoad:'Warning',floodElevation:'Fail',roofAnchoring:'Warning',foundation:'Pass',openings:'Fail',criticalIssues:["Floor elevation 0.9m below required minimum","Window specs don't confirm impact resistance"],recommendations:['Raise floor to minimum 1.8m above sea level','Specify ASTM E1996 impact-rated openings','Add hurricane straps at 600mm rafter spacing']};
+const EXAMPLE_PASS = {passportId:'LAND-2026-4821',grade:'B',resilienceScore:71,status:'Conditionally Approved',summary:'Site presents manageable climate risk with required structural improvements. Suitable for development pending compliance remediation.',strengths:['Foundation specification meets Cat 5 loads','Adequate coastal setback distance'],vulnerabilities:['Flood elevation non-compliant','Opening protection incomplete'],requiredActions:['Raise floor elevation to flood zone minimum','Upgrade all openings to impact-rated','Complete hurricane strap installation'],insuranceNote:'Insurable at standard rate pending flood elevation certificate.',nextReview:'6 months post-remediation'};
+
+function mockAnalyze(kind) {
+  return new Promise(resolve => {
+    setTimeout(() => {
+      resolve(kind==='risk'?EXAMPLE_RISK:kind==='comp'?EXAMPLE_COMP:EXAMPLE_PASS);
+    }, 900 + Math.random()*500);
+  });
 }
 
 const RISK_SYS = `Caribbean land risk AI for Landfall. Analyze location for real building risk. Return ONLY valid JSON: {"riskScore":72,"floodRisk":"High","hurricaneExposure":"Critical","terrainRisk":"Medium","hurricaneCat":"Cat 4-5","recommendation":"Raise foundation minimum 1.5m, use reinforced concrete roof deck","concerns":["Coastal plain flood exposure","High-frequency Cat 4+ track","Storm surge corridor"],"advantages":["Stable bedrock","Inland setback from coast"]}. Use real Caribbean geography and hurricane data.`;
@@ -99,13 +121,19 @@ function App() {
   const [risk,setRisk]=useState(null);
   const [comp,setComp]=useState(null);
   const [pass,setPass]=useState(null);
+  const [demoMode,setDemoMode]=useState(false);
 
   const stepNum = {home:0,step1:1,step1r:1,step2:2,step2r:2,step3:3}[screen]||0;
+
+  // Routes a step to either the live Claude call or canned example data,
+  // depending on the "Use example data" toggle.
+  const analyze = (kind, system, prompt) => demoMode ? mockAnalyze(kind) : callClaude(system, prompt);
 
   const go = async (fn, next) => {
     setLoading(true); setErr('');
     const d = await fn();
-    if (d) setScreen(next); else setErr('Analysis failed — please try again.');
+    if (d) setScreen(next);
+    else setErr(demoMode ? 'Example data failed to load — please try again.' : 'Live API call failed — check your network/API key, or turn on "Use example data" above to test the flow without a live call.');
     setLoading(false);
   };
   const reset = () => { setScreen('home'); setRisk(null); setComp(null); setPass(null); setLoc(''); setDesc(''); setErr(''); };
@@ -119,6 +147,15 @@ function App() {
         ),
         screen!=='home'&&h('button',{onClick:reset,style:{background:'none',border:'0.5px solid rgba(255,255,255,0.2)',color:'rgba(255,255,255,0.6)',borderRadius:6,padding:'5px 12px',fontSize:12,cursor:'pointer'}},'New analysis')
       ),
+      h('div',{style:{maxWidth:760,margin:'0 auto',display:'flex',justifyContent:'flex-end',paddingBottom:8}},
+        h('label',{style:{display:'flex',alignItems:'center',gap:7,cursor:'pointer',userSelect:'none'}},
+          h('span',{style:{fontSize:11,color:'rgba(255,255,255,0.55)'}},'Use example data'),
+          h('span',{style:{position:'relative',width:30,height:17,background:demoMode?C.teal:'rgba(255,255,255,0.18)',borderRadius:9,transition:'background 0.2s',flexShrink:0}},
+            h('input',{type:'checkbox',checked:demoMode,onChange:e=>setDemoMode(e.target.checked),style:{position:'absolute',inset:0,opacity:0,cursor:'pointer',margin:0}}),
+            h('span',{style:{position:'absolute',top:2,left:demoMode?15:2,width:13,height:13,background:'#fff',borderRadius:'50%',transition:'left 0.2s'}})
+          )
+        )
+      ),
       stepNum>0&&h('div',{style:{maxWidth:760,margin:'0 auto'}},h(Steps,{cur:stepNum}))
     ),
 
@@ -126,7 +163,7 @@ function App() {
 
       screen==='home'&&h('div',{className:'fade',style:{textAlign:'center',paddingTop:32}},
         h('div',{style:{display:'inline-flex',gap:6,alignItems:'center',background:'#EFF8FF',borderRadius:20,padding:'4px 14px',marginBottom:22}},
-          h('span',{style:{fontSize:12,fontWeight:500,color:'#1D6FA4'}}),'🌊 AI resilience passport for Caribbean buildings'),
+          h('span',{style:{fontSize:12,fontWeight:500,color:'#1D6FA4'}},'🌊 AI resilience passport for Caribbean buildings')),
         h('h1',{style:{fontSize:34,fontWeight:600,color:'#08182A',lineHeight:1.2,marginBottom:14,letterSpacing:'-0.02em'}},'Every building should know',h('br'),'its own weaknesses.'),
         h('p',{style:{color:'#7A8FA6',fontSize:16,marginBottom:36,lineHeight:1.7,maxWidth:480,margin:'0 auto 36px'}},'Three AI agents. One verified resilience record — before the storm finds the gaps.'),
         h('button',{onClick:()=>setScreen('step1'),style:{background:C.teal,color:'#fff',border:'none',borderRadius:8,padding:'13px 36px',fontSize:15,fontWeight:500,cursor:'pointer',marginBottom:48}},'Start site analysis →'),
@@ -135,9 +172,9 @@ function App() {
            {icon:'📋',title:'Compliance',desc:'OECS & local building code check with specific remediation steps'},
            {icon:'🛡️',title:'Resilience passport',desc:'Verified record for insurers, governments, and property buyers'}
           ].map(f=>h('div',{key:f.title,style:{background:'#fff',borderRadius:10,padding:'18px 16px',border:'0.5px solid #E2EAF0',textAlign:'left'}},
-            h('div',{style:{fontSize:24,marginBottom:10}}),f.icon,
-            h('p',{style:{fontWeight:500,fontSize:14,color:'#1C2B3A',marginBottom:6}}),f.title,
-            h('p',{style:{fontSize:13,color:'#7A8FA6',lineHeight:1.6}}),f.desc
+            h('div',{style:{fontSize:24,marginBottom:10}},f.icon),
+            h('p',{style:{fontWeight:500,fontSize:14,color:'#1C2B3A',marginBottom:6}},f.title),
+            h('p',{style:{fontSize:13,color:'#7A8FA6',lineHeight:1.6}},f.desc)
           ))
         )
       ),
@@ -149,7 +186,7 @@ function App() {
           h('input',{value:loc,onChange:e=>setLoc(e.target.value),placeholder:'e.g. Worthing, Christ Church, Barbados',style:{width:'100%',padding:'10px 14px',border:'0.5px solid #CBD5E1',borderRadius:8,fontSize:14,color:'#1C2B3A',background:'#F8FBFD',marginBottom:4}}),
           err&&h('p',{style:{color:C.danger,fontSize:12,marginBottom:8}},err),
           h('div',{style:{marginTop:16,display:'flex',gap:10,alignItems:'center'}},
-            h(Btn,{onClick:()=>go(()=>callClaude(RISK_SYS,`Analyze for building risk: "${loc}"`).then(d=>{if(d)setRisk(d);return d;}),disabled:loading||!loc.trim()},loading?'Analyzing…':'Run risk assessment →'),
+            h(Btn,{onClick:()=>go(()=>analyze('risk',RISK_SYS,`Analyze for building risk: "${loc}"`).then(d=>{if(d)setRisk(d);return d;}),'step1r'),disabled:loading||!loc.trim()},loading?'Analyzing…':'Run risk assessment →'),
             loading&&h(Spin,{text:'Reading flood maps and hurricane tracks…'})
           )
         )
@@ -191,7 +228,7 @@ function App() {
           h('textarea',{value:desc,onChange:e=>setDesc(e.target.value),rows:5,placeholder:'e.g. Two-storey residential, reinforced concrete block, hip roof with metal sheeting, poured slab 0.3m above grade, standard aluminium sliding windows…',style:{width:'100%',padding:'10px 14px',border:'0.5px solid #CBD5E1',borderRadius:8,fontSize:14,color:'#1C2B3A',background:'#F8FBFD',marginBottom:4}}),
           err&&h('p',{style:{color:C.danger,fontSize:12,marginBottom:8}},err),
           h('div',{style:{marginTop:16,display:'flex',gap:10,alignItems:'center'}},
-            h(Btn,{onClick:()=>go(()=>callClaude(COMP_SYS,`Location: ${loc}, risk score ${risk?.riskScore}. Check this building: "${desc}"`).then(d=>{if(d)setComp(d);return d;}),disabled:loading||!desc.trim()},loading?'Checking…':'Run compliance check →'),
+            h(Btn,{onClick:()=>go(()=>analyze('comp',COMP_SYS,`Location: ${loc}, risk score ${risk?.riskScore}. Check this building: "${desc}"`).then(d=>{if(d)setComp(d);return d;}),'step2r'),disabled:loading||!desc.trim()},loading?'Checking…':'Run compliance check →'),
             loading&&h(Spin,{text:'Checking against OECS and Caribbean building codes…'})
           )
         )
@@ -219,7 +256,7 @@ function App() {
           (comp.recommendations||[]).map((r,i)=>h('p',{key:i,style:{fontSize:13,color:'#6B7280',marginBottom:5,lineHeight:1.5}},`→ ${r}`))
         ),
         h('div',{style:{display:'flex',gap:10,marginTop:14,alignItems:'center'}},
-          h(Btn,{onClick:()=>go(()=>callClaude(PASS_SYS,`Location: ${loc}. Risk: ${JSON.stringify(risk)}. Compliance: ${JSON.stringify(comp)}`).then(d=>{if(d)setPass(d);setScreen('step3');return d;}),disabled:loading},loading?'Generating passport…':'Generate resilience passport →'),
+          h(Btn,{onClick:()=>go(()=>analyze('pass',PASS_SYS,`Location: ${loc}. Risk: ${JSON.stringify(risk)}. Compliance: ${JSON.stringify(comp)}`).then(d=>{if(d)setPass(d);return d;}),'step3'),disabled:loading},loading?'Generating passport…':'Generate resilience passport →'),
           loading&&h(Spin,{text:'Assembling your passport…'}),
           h(Btn,{outline:true,onClick:()=>setScreen('step2')},'Revise')
         ),
