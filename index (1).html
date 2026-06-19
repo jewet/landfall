@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Landfall — AI Resilience Passport for Caribbean Buildings</title>
+<meta name="description" content="Landfall uses AI agents to generate a verified resilience record for Caribbean buildings — site risk, compliance, and a digital passport — before the storm finds the gaps." />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600&display=swap" rel="stylesheet" />
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body { font-family: 'Space Grotesk', system-ui, sans-serif; background: #F0F5FA; color: #1C2B3A; }
+  input, textarea, button { font-family: inherit; }
+  textarea { resize: vertical; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+  .fade { animation: fadeUp 0.35s ease both; }
+  ::-webkit-scrollbar { width: 6px; } ::-webkit-scrollbar-thumb { background: #C8D5E0; border-radius: 3px; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+const { createElement: h, useState } = React;
+
+const C = { navy:'#08182A', teal:'#00C9A7', orange:'#FF6B35', danger:'#DC2626', warning:'#D97706', success:'#16A34A' };
+
+async function callClaude(system, user) {
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ model:'claude-sonnet-4-6', max_tokens:1000, system, messages:[{role:'user',content:user}] })
+    });
+    const d = await res.json();
+    const text = d.content?.[0]?.text || '';
+    const m = text.match(/\{[\s\S]*\}/);
+    if (m) return JSON.parse(m[0]);
+    return null;
+  } catch { return null; }
+}
+
+const RISK_SYS = `Caribbean land risk AI for Landfall. Analyze location for real building risk. Return ONLY valid JSON: {"riskScore":72,"floodRisk":"High","hurricaneExposure":"Critical","terrainRisk":"Medium","hurricaneCat":"Cat 4-5","recommendation":"Raise foundation minimum 1.5m, use reinforced concrete roof deck","concerns":["Coastal plain flood exposure","High-frequency Cat 4+ track","Storm surge corridor"],"advantages":["Stable bedrock","Inland setback from coast"]}. Use real Caribbean geography and hurricane data.`;
+
+const COMP_SYS = `Caribbean building compliance AI for Landfall. Check against OECS standards and Caribbean hurricane-resilience codes. Return ONLY valid JSON: {"overallScore":65,"windLoad":"Warning","floodElevation":"Fail","roofAnchoring":"Warning","foundation":"Pass","openings":"Fail","criticalIssues":["Floor elevation 0.9m below required minimum","Window specs don't confirm impact resistance"],"recommendations":["Raise floor to minimum 1.8m above sea level","Specify ASTM E1996 impact-rated openings","Add hurricane straps at 600mm rafter spacing"]}. Be specific to Caribbean codes.`;
+
+const PASS_SYS = `Caribbean building resilience passport generator for Landfall. Return ONLY valid JSON: {"passportId":"LAND-2026-4821","grade":"B","resilienceScore":71,"status":"Conditionally Approved","summary":"Site presents manageable climate risk with required structural improvements. Suitable for development pending compliance remediation.","strengths":["Foundation specification meets Cat 5 loads","Adequate coastal setback distance"],"vulnerabilities":["Flood elevation non-compliant","Opening protection incomplete"],"requiredActions":["Raise floor elevation to flood zone minimum","Upgrade all openings to impact-rated","Complete hurricane strap installation"],"insuranceNote":"Insurable at standard rate pending flood elevation certificate.","nextReview":"6 months post-remediation"}`;
+
+const Badge = ({ v }) => {
+  const map = { Low:['#16A34A','#f0fdf4'], Medium:['#D97706','#fffbeb'], High:['#DC2626','#fef2f2'], Critical:['#7f1d1d','#fef2f2'], Pass:['#16A34A','#f0fdf4'], Warning:['#D97706','#fffbeb'], Fail:['#DC2626','#fef2f2'] };
+  const [col,bg] = map[v] || ['#6b7280','#f3f4f6'];
+  return h('span',{style:{background:bg,color:col,borderRadius:4,padding:'2px 8px',fontSize:11,fontWeight:600,letterSpacing:'0.05em',textTransform:'uppercase'}},v);
+};
+
+const Gauge = ({ score }) => {
+  const r=42, c=2*Math.PI*r;
+  const col = score>=65?C.danger:score>=40?C.warning:C.success;
+  return h('svg',{width:100,height:100,viewBox:'0 0 100 100'},
+    h('circle',{cx:50,cy:50,r,fill:'none',stroke:'#E2EAF0',strokeWidth:7}),
+    h('circle',{cx:50,cy:50,r,fill:'none',stroke:col,strokeWidth:7,strokeDasharray:`${(score/100)*c} ${c}`,strokeLinecap:'round',transform:'rotate(-90 50 50)',style:{transition:'stroke-dasharray 1.2s ease'}}),
+    h('text',{x:50,y:46,textAnchor:'middle',fontSize:20,fontWeight:600,fill:'#1C2B3A'},score),
+    h('text',{x:50,y:60,textAnchor:'middle',fontSize:8,fill:'#7A8FA6',letterSpacing:'0.1em'},'RISK'),
+  );
+};
+
+const GradeCircle = ({ grade }) => {
+  const cols={A:C.success,B:'#65a30d',C:C.warning,D:C.danger,F:'#7f1d1d'};
+  return h('div',{style:{width:72,height:72,borderRadius:'50%',background:cols[grade]||'#6b7280',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}},
+    h('span',{style:{fontSize:36,fontWeight:600,color:'#fff'}},grade));
+};
+
+const Steps = ({ cur }) => {
+  const steps=[{n:1,label:'Site risk'},{n:2,label:'Compliance'},{n:3,label:'Passport'}];
+  return h('div',{style:{display:'flex',alignItems:'center',justifyContent:'center',padding:'14px 0'}},
+    steps.map((s,i)=>h('div',{key:s.n,style:{display:'flex',alignItems:'center'}},
+      h('div',{style:{display:'flex',flexDirection:'column',alignItems:'center',gap:3}},
+        h('div',{style:{width:28,height:28,borderRadius:'50%',display:'flex',alignItems:'center',justifyContent:'center',fontWeight:600,fontSize:12,background:cur>=s.n?C.teal:'rgba(255,255,255,0.15)',color:cur>=s.n?'#fff':'rgba(255,255,255,0.5)',transition:'all 0.3s'}},s.n),
+        h('span',{style:{fontSize:10,color:cur>=s.n?'rgba(255,255,255,0.9)':'rgba(255,255,255,0.4)',fontWeight:cur===s.n?600:400}},s.label)
+      ),
+      i<2&&h('div',{style:{width:52,height:1,background:cur>s.n?C.teal:'rgba(255,255,255,0.15)',marginBottom:16,transition:'background 0.4s'}})
+    ))
+  );
+};
+
+const Spin = ({ text }) => h('div',{style:{display:'flex',alignItems:'center',gap:12,padding:'20px 0',color:'#7A8FA6',fontSize:13}},
+  h('div',{style:{width:18,height:18,border:'2px solid #E2EAF0',borderTop:`2px solid ${C.teal}`,borderRadius:'50%',animation:'spin 0.8s linear infinite',flexShrink:0}}), text);
+
+const Card = ({ children, style:s={} }) => h('div',{style:{background:'#fff',borderRadius:12,border:'0.5px solid #E2EAF0',padding:'20px 22px',...s}},children);
+const Btn = ({ onClick, disabled, children, outline }) => h('button',{onClick,disabled,style:{padding:'10px 22px',borderRadius:8,border:outline?'0.5px solid #C8D5E0':'none',background:outline?'transparent':disabled?'#CBD5E1':C.teal,color:outline?'#7A8FA6':disabled?'#94A3B8':'#fff',fontSize:14,fontWeight:500,cursor:disabled?'not-allowed':'pointer'}},children);
+
+function App() {
+  const [screen,setScreen]=useState('home');
+  const [loading,setLoading]=useState(false);
+  const [err,setErr]=useState('');
+  const [loc,setLoc]=useState('');
+  const [desc,setDesc]=useState('');
+  const [risk,setRisk]=useState(null);
+  const [comp,setComp]=useState(null);
+  const [pass,setPass]=useState(null);
+
+  const stepNum = {home:0,step1:1,step1r:1,step2:2,step2r:2,step3:3}[screen]||0;
+
+  const go = async (fn, next) => {
+    setLoading(true); setErr('');
+    const d = await fn();
+    if (d) setScreen(next); else setErr('Analysis failed — please try again.');
+    setLoading(false);
+  };
+  const reset = () => { setScreen('home'); setRisk(null); setComp(null); setPass(null); setLoc(''); setDesc(''); setErr(''); };
+
+  return h('div',{style:{minHeight:'100vh',display:'flex',flexDirection:'column'}},
+    h('div',{style:{background:C.navy,padding:'0 24px',position:'sticky',top:0,zIndex:10}},
+      h('div',{style:{maxWidth:760,margin:'0 auto',display:'flex',alignItems:'center',justifyContent:'space-between',height:54}},
+        h('div',{style:{display:'flex',alignItems:'center',gap:8}},
+          h('div',{style:{width:26,height:26,background:C.teal,borderRadius:6,display:'flex',alignItems:'center',justifyContent:'center',fontSize:14}},'🛡️'),
+          h('span',{style:{color:'#fff',fontWeight:600,fontSize:17,letterSpacing:'-0.01em'}},'Landfall')
+        ),
+        screen!=='home'&&h('button',{onClick:reset,style:{background:'none',border:'0.5px solid rgba(255,255,255,0.2)',color:'rgba(255,255,255,0.6)',borderRadius:6,padding:'5px 12px',fontSize:12,cursor:'pointer'}},'New analysis')
+      ),
+      stepNum>0&&h('div',{style:{maxWidth:760,margin:'0 auto'}},h(Steps,{cur:stepNum}))
+    ),
+
+    h('div',{style:{maxWidth:760,margin:'0 auto',width:'100%',padding:'28px 24px',flex:1}},
+
+      screen==='home'&&h('div',{className:'fade',style:{textAlign:'center',paddingTop:32}},
+        h('div',{style:{display:'inline-flex',gap:6,alignItems:'center',background:'#EFF8FF',borderRadius:20,padding:'4px 14px',marginBottom:22}},
+          h('span',{style:{fontSize:12,fontWeight:500,color:'#1D6FA4'}}),'🌊 AI resilience passport for Caribbean buildings'),
+        h('h1',{style:{fontSize:34,fontWeight:600,color:'#08182A',lineHeight:1.2,marginBottom:14,letterSpacing:'-0.02em'}},'Every building should know',h('br'),'its own weaknesses.'),
+        h('p',{style:{color:'#7A8FA6',fontSize:16,marginBottom:36,lineHeight:1.7,maxWidth:480,margin:'0 auto 36px'}},'Three AI agents. One verified resilience record — before the storm finds the gaps.'),
+        h('button',{onClick:()=>setScreen('step1'),style:{background:C.teal,color:'#fff',border:'none',borderRadius:8,padding:'13px 36px',fontSize:15,fontWeight:500,cursor:'pointer',marginBottom:48}},'Start site analysis →'),
+        h('div',{style:{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:14}},
+          [{icon:'📍',title:'Site risk',desc:'Flood, hurricane & terrain assessment before money is committed'},
+           {icon:'📋',title:'Compliance',desc:'OECS & local building code check with specific remediation steps'},
+           {icon:'🛡️',title:'Resilience passport',desc:'Verified record for insurers, governments, and property buyers'}
+          ].map(f=>h('div',{key:f.title,style:{background:'#fff',borderRadius:10,padding:'18px 16px',border:'0.5px solid #E2EAF0',textAlign:'left'}},
+            h('div',{style:{fontSize:24,marginBottom:10}}),f.icon,
+            h('p',{style:{fontWeight:500,fontSize:14,color:'#1C2B3A',marginBottom:6}}),f.title,
+            h('p',{style:{fontSize:13,color:'#7A8FA6',lineHeight:1.6}}),f.desc
+          ))
+        )
+      ),
+
+      screen==='step1'&&h('div',{className:'fade'},
+        h(Card,{},
+          h('h2',{style:{fontSize:17,fontWeight:600,color:'#1C2B3A',marginBottom:6}},'Site risk assessment'),
+          h('p',{style:{color:'#7A8FA6',marginBottom:18,fontSize:13,lineHeight:1.6}},"Enter a location — a neighbourhood, address, island, or GPS coordinates. We'll assess flood, hurricane, and terrain risk."),
+          h('input',{value:loc,onChange:e=>setLoc(e.target.value),placeholder:'e.g. Worthing, Christ Church, Barbados',style:{width:'100%',padding:'10px 14px',border:'0.5px solid #CBD5E1',borderRadius:8,fontSize:14,color:'#1C2B3A',background:'#F8FBFD',marginBottom:4}}),
+          err&&h('p',{style:{color:C.danger,fontSize:12,marginBottom:8}},err),
+          h('div',{style:{marginTop:16,display:'flex',gap:10,alignItems:'center'}},
+            h(Btn,{onClick:()=>go(()=>callClaude(RISK_SYS,`Analyze for building risk: "${loc}"`).then(d=>{if(d)setRisk(d);return d;}),disabled:loading||!loc.trim()},loading?'Analyzing…':'Run risk assessment →'),
+            loading&&h(Spin,{text:'Reading flood maps and hurricane tracks…'})
+          )
+        )
+      ),
+
+      screen==='step1r'&&risk&&h('div',{className:'fade'},
+        h(Card,{},
+          h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:18,gap:12}},
+            h('div',{},
+              h('p',{style:{fontSize:10,color:'#7A8FA6',textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:4}},'Location'),
+              h('h2',{style:{fontSize:18,fontWeight:600,color:'#1C2B3A'}},loc)
+            ),
+            h(Gauge,{score:risk.riskScore||0})
+          ),
+          h('div',{style:{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:10,marginBottom:16}},
+            [{label:'Flood risk',val:risk.floodRisk},{label:'Hurricane',val:risk.hurricaneExposure},{label:'Terrain',val:risk.terrainRisk}]
+            .map(r=>h('div',{key:r.label,style:{background:'#F8FBFD',borderRadius:8,padding:'10px 12px'}},
+              h('p',{style:{fontSize:10,color:'#7A8FA6',textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:6}},r.label),
+              h(Badge,{v:r.val})))
+          ),
+          h('div',{style:{background:'#FFFBEB',border:'0.5px solid #FDE68A',borderRadius:8,padding:'12px 14px',marginBottom:16}},
+            h('p',{style:{fontSize:11,color:'#92400E',fontWeight:600,marginBottom:4,textTransform:'uppercase',letterSpacing:'0.05em'}},'Key recommendation'),
+            h('p',{style:{fontSize:13,color:'#78350F'}},risk.recommendation)
+          ),
+          h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16}},
+            h('div',{},h('p',{style:{fontWeight:500,fontSize:11,color:C.danger,marginBottom:8,textTransform:'uppercase',letterSpacing:'0.05em'}},'Concerns'),(risk.concerns||[]).map((c,i)=>h('p',{key:i,style:{fontSize:13,color:'#6B7280',marginBottom:5,lineHeight:1.5}},`• ${c}`))),
+            h('div',{},h('p',{style:{fontWeight:500,fontSize:11,color:C.success,marginBottom:8,textTransform:'uppercase',letterSpacing:'0.05em'}},'Advantages'),(risk.advantages||risk.siteAdvantages||[]).map((a,i)=>h('p',{key:i,style:{fontSize:13,color:'#6B7280',marginBottom:5,lineHeight:1.5}},`• ${a}`)))
+          )
+        ),
+        h('div',{style:{display:'flex',gap:10,marginTop:14}},
+          h(Btn,{onClick:()=>setScreen('step2')},'Continue to compliance →'),
+          h(Btn,{outline:true,onClick:()=>setScreen('step1')},'Re-run'))
+      ),
+
+      screen==='step2'&&h('div',{className:'fade'},
+        h(Card,{},
+          h('h2',{style:{fontSize:17,fontWeight:600,color:'#1C2B3A',marginBottom:6}},'Compliance check'),
+          h('p',{style:{color:'#7A8FA6',marginBottom:18,fontSize:13,lineHeight:1.6}},'Describe the building: construction type, floors, roof style, foundation, and window specs. More detail = better check.'),
+          h('textarea',{value:desc,onChange:e=>setDesc(e.target.value),rows:5,placeholder:'e.g. Two-storey residential, reinforced concrete block, hip roof with metal sheeting, poured slab 0.3m above grade, standard aluminium sliding windows…',style:{width:'100%',padding:'10px 14px',border:'0.5px solid #CBD5E1',borderRadius:8,fontSize:14,color:'#1C2B3A',background:'#F8FBFD',marginBottom:4}}),
+          err&&h('p',{style:{color:C.danger,fontSize:12,marginBottom:8}},err),
+          h('div',{style:{marginTop:16,display:'flex',gap:10,alignItems:'center'}},
+            h(Btn,{onClick:()=>go(()=>callClaude(COMP_SYS,`Location: ${loc}, risk score ${risk?.riskScore}. Check this building: "${desc}"`).then(d=>{if(d)setComp(d);return d;}),disabled:loading||!desc.trim()},loading?'Checking…':'Run compliance check →'),
+            loading&&h(Spin,{text:'Checking against OECS and Caribbean building codes…'})
+          )
+        )
+      ),
+
+      screen==='step2r'&&comp&&h('div',{className:'fade'},
+        h(Card,{},
+          h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:18}},
+            h('h2',{style:{fontSize:17,fontWeight:600,color:'#1C2B3A'}},'Compliance report'),
+            h('div',{style:{textAlign:'center'}},
+              h('p',{style:{fontSize:28,fontWeight:600,color:comp.overallScore>=80?C.success:comp.overallScore>=60?C.warning:C.danger}},`${comp.overallScore}%`),
+              h('p',{style:{fontSize:10,color:'#7A8FA6',textTransform:'uppercase',letterSpacing:'0.06em'}},'Overall')
+            )
+          ),
+          h('div',{style:{display:'grid',gridTemplateColumns:'repeat(2,1fr)',gap:8,marginBottom:16}},
+            [['Wind load',comp.windLoad||comp.windLoadRating],['Flood elevation',comp.floodElevation],['Roof anchoring',comp.roofAnchoring],['Foundation',comp.foundation||comp.foundationSpec],['Opening protection',comp.openings||comp.openingProtection]]
+            .filter(([,v])=>v).map(([label,val])=>h('div',{key:label,style:{display:'flex',justifyContent:'space-between',alignItems:'center',background:'#F8FBFD',borderRadius:8,padding:'9px 12px'}},
+              h('span',{style:{fontSize:13,color:'#1C2B3A'}},label),h(Badge,{v:val})))
+          ),
+          (comp.criticalIssues||comp.issues||[]).length>0&&h('div',{style:{background:'#FEF2F2',border:'0.5px solid #FECACA',borderRadius:8,padding:'12px 14px',marginBottom:12}},
+            h('p',{style:{fontWeight:600,fontSize:11,color:'#991B1B',marginBottom:8,textTransform:'uppercase',letterSpacing:'0.05em'}},'Critical issues'),
+            (comp.criticalIssues||comp.issues).map((i,idx)=>h('p',{key:idx,style:{fontSize:13,color:'#7F1D1D',marginBottom:4}},`⚠ ${i}`))
+          ),
+          h('p',{style:{fontWeight:500,fontSize:11,color:'#1C2B3A',marginBottom:8,textTransform:'uppercase',letterSpacing:'0.05em'}},'Recommendations'),
+          (comp.recommendations||[]).map((r,i)=>h('p',{key:i,style:{fontSize:13,color:'#6B7280',marginBottom:5,lineHeight:1.5}},`→ ${r}`))
+        ),
+        h('div',{style:{display:'flex',gap:10,marginTop:14,alignItems:'center'}},
+          h(Btn,{onClick:()=>go(()=>callClaude(PASS_SYS,`Location: ${loc}. Risk: ${JSON.stringify(risk)}. Compliance: ${JSON.stringify(comp)}`).then(d=>{if(d)setPass(d);setScreen('step3');return d;}),disabled:loading},loading?'Generating passport…':'Generate resilience passport →'),
+          loading&&h(Spin,{text:'Assembling your passport…'}),
+          h(Btn,{outline:true,onClick:()=>setScreen('step2')},'Revise')
+        ),
+        err&&h('p',{style:{color:C.danger,fontSize:12,marginTop:8}},err)
+      ),
+
+      screen==='step3'&&pass&&h('div',{className:'fade'},
+        h('div',{style:{background:C.navy,borderRadius:12,padding:'24px',marginBottom:16}},
+          h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:20}},
+            h('div',{},
+              h('div',{style:{display:'flex',alignItems:'center',gap:6,marginBottom:4}},
+                h('span',{style:{fontSize:12}},'🛡️'),
+                h('span',{style:{color:C.teal,fontSize:11,fontWeight:600,letterSpacing:'0.1em',textTransform:'uppercase'}},'Landfall')
+              ),
+              h('p',{style:{color:'rgba(255,255,255,0.4)',fontSize:10,letterSpacing:'0.08em',textTransform:'uppercase'}},'Caribbean resilience passport')
+            ),
+            h(GradeCircle,{grade:pass.grade})
+          ),
+          h('p',{style:{color:'rgba(255,255,255,0.4)',fontSize:10,textTransform:'uppercase',letterSpacing:'0.08em',marginBottom:3}},'Property'),
+          h('p',{style:{color:'#fff',fontSize:17,fontWeight:600,marginBottom:18}},loc),
+          h('div',{style:{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:10,marginBottom:18}},
+            [{label:'Resilience score',val:pass.resilienceScore||pass.score},{label:'Status',val:pass.status,small:true},{label:'Next review',val:pass.nextReview||pass.nextInspection,small:true}]
+            .map(f=>h('div',{key:f.label,style:{background:'rgba(255,255,255,0.07)',borderRadius:8,padding:'10px 12px'}},
+              h('p',{style:{color:'rgba(255,255,255,0.4)',fontSize:9,textTransform:'uppercase',letterSpacing:'0.08em',marginBottom:4}},f.label),
+              h('p',{style:{color:'#fff',fontWeight:500,fontSize:f.small?12:22}},f.val)))
+          ),
+          h('p',{style:{color:'rgba(255,255,255,0.65)',fontSize:12,lineHeight:1.6,marginBottom:16}},pass.summary),
+          h('div',{style:{borderTop:'0.5px solid rgba(255,255,255,0.1)',paddingTop:12,display:'flex',justifyContent:'space-between'}},
+            h('span',{style:{color:'rgba(255,255,255,0.3)',fontSize:11,fontFamily:'monospace'}},pass.passportId||pass.id),
+            h('span',{style:{color:'rgba(255,255,255,0.3)',fontSize:11}},`Issued ${new Date().toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'})}`)
+          )
+        ),
+        h(Card,{},
+          h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:18,marginBottom:16}},
+            h('div',{},h('p',{style:{fontWeight:500,fontSize:11,color:C.success,marginBottom:8,textTransform:'uppercase',letterSpacing:'0.05em'}},'✓ Strengths'),(pass.strengths||[]).map((s,i)=>h('p',{key:i,style:{fontSize:13,color:'#6B7280',marginBottom:5,lineHeight:1.5}},`• ${s}`))),
+            h('div',{},h('p',{style:{fontWeight:500,fontSize:11,color:C.danger,marginBottom:8,textTransform:'uppercase',letterSpacing:'0.05em'}},'⚠ Vulnerabilities'),(pass.vulnerabilities||[]).map((v,i)=>h('p',{key:i,style:{fontSize:13,color:'#6B7280',marginBottom:5,lineHeight:1.5}},`• ${v}`)))
+          ),
+          h('div',{style:{background:'#F8FBFD',borderRadius:8,padding:'12px 14px',marginBottom:14}},
+            h('p',{style:{fontWeight:500,fontSize:11,color:'#1C2B3A',marginBottom:8,textTransform:'uppercase',letterSpacing:'0.05em'}},'Required actions'),
+            (pass.requiredActions||pass.actions||[]).map((a,i)=>h('p',{key:i,style:{fontSize:13,color:'#6B7280',marginBottom:6,display:'flex',gap:8,lineHeight:1.5}},h('span',{style:{color:C.orange,fontWeight:600,flexShrink:0}},`${i+1}.`),a))
+          ),
+          h('div',{style:{background:'#F0FDF4',border:'0.5px solid #BBF7D0',borderRadius:8,padding:'10px 14px'}},
+            h('p',{style:{fontSize:11,color:'#166534',fontWeight:600,marginBottom:3}},'💼 Insurance note'),
+            h('p',{style:{fontSize:13,color:'#166534'}},pass.insuranceNote)
+          )
+        ),
+        h('div',{style:{display:'flex',gap:10,marginTop:14}},
+          h(Btn,{onClick:()=>window.print()},'Export passport'),
+          h(Btn,{outline:true,onClick:reset},'New analysis')
+        )
+      )
+    )
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(h(App));
+</script>
+</body>
+</html>
